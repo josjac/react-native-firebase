@@ -31,7 +31,25 @@ class RNFBNativeEventEmitter extends NativeEventEmitter {
       this.ready = true;
     }
     RNFBAppModule.eventsAddListener(eventType);
-    return super.addListener(`rnfb_${eventType}`, listener, context);
+
+    let subscription = super.addListener(`rnfb_${eventType}`, listener, context);
+
+    // React Native 0.65+ have a re-written EventEmitter that returns an unsubscribe now,
+    // vs. our previous expectation of something with shape `{ eventType: 'rnfb_<eventType>`, ...}`
+    // for forwards and backwards compatibility, we add that specific key in
+    subscription.eventType = `rnfb_${eventType}`;
+
+    // New style is to return a remove function on the object, just in csae people call that,
+    // we will modify it to do our native unsubscription then call the original
+    let originalRemove = subscription.remove;
+    let newRemove = () => {
+      RNFBAppModule.eventsRemoveListener(eventType, false);
+      if (originalRemove != null) {
+        originalRemove();
+      }
+    };
+    subscription.remove = newRemove;
+    return subscription;
   }
 
   removeAllListeners(eventType) {
@@ -39,9 +57,12 @@ class RNFBNativeEventEmitter extends NativeEventEmitter {
     super.removeAllListeners(`rnfb_${eventType}`);
   }
 
+  // This is likely no longer ever called, but it is here for backwards compatibility with RN <= 0.64
   removeSubscription(subscription) {
     RNFBAppModule.eventsRemoveListener(subscription.eventType.replace('rnfb_'), false);
-    super.removeSubscription(subscription);
+    if (super.removeSubscription) {
+      super.removeSubscription(subscription);
+    }
   }
 }
 
